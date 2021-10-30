@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, writeFileSync, readFileSync } from "fs";
-import { join, dirname, basename } from "path";
+import { resolve, join, dirname } from "path";
 import { Checker } from "./";
 
 if (
@@ -23,7 +23,7 @@ if (
     process.exit(0);
 }
 
-let recipePath = join(process.cwd(), "recipe.js"),
+let recipePath = resolve("recipe.js"),
     testcasePath = "",
     outputPath = "",
     preprocessorPath = "",
@@ -71,6 +71,12 @@ if (process.argv.findIndex((arg) => arg === "--source") !== -1 || process.argv.f
     }
 }
 
+if (recipePath) recipePath = resolve(recipePath);
+if (testcasePath) testcasePath = resolve(testcasePath);
+if (outputPath) outputPath = resolve(outputPath);
+if (preprocessorPath) preprocessorPath = resolve(preprocessorPath);
+for (let i = 0; i < sourcePath.length; i++) sourcePath[i] = resolve(sourcePath[i]);
+
 if ((!recipePath || !existsSync(recipePath)) && (!testcasePath || !existsSync(testcasePath))) {
     console.log("\u001b[1;91m" + "Recipe or Testcase File Not Found." + "\u001b[0m");
     process.exit(1);
@@ -91,10 +97,10 @@ check();
 async function check() {
     const StartT = Date.now();
     const checker = new Checker();
-    if (recipePath) checker.genTestcase(require(recipePath));
-    else checker.testcase(readFileSync(testcasePath, "utf-8"));
-    for (let i = 0; i < sourcePath.length; i++) checker.source(readFileSync(sourcePath[i], "utf-8"));
-    if (preprocessorPath) checker.setPreprocessor(require(preprocessorPath));
+    if (recipePath) checker.genTestcase(require(resolve(recipePath)));
+    else checker.testcase(readFileSync(resolve(testcasePath), "utf-8"));
+    for (let i = 0; i < sourcePath.length; i++) checker.source(readFileSync(resolve(sourcePath[i]), "utf-8"));
+    if (preprocessorPath) checker.setPreprocessor(require(resolve(preprocessorPath)));
     const result = await checker.go();
 
     if (!outputPath) outputPath = join(dirname(recipePath || testcasePath), `result.${checker.id}.json`);
