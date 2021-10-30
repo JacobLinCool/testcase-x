@@ -1,6 +1,6 @@
 {
     "name": "testcase-x",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "description": "Testcase Cross Checker",
     "main": "lib/index.js",
     "types": "lib/index.d.ts",
