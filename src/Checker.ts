@@ -62,7 +62,7 @@ class Checker {
             this.log("Copied Sources.");
 
             for (let i = 0; i < this.sources.length; i++) {
-                const gcc = `gcc -o ./out_${i}${process.platform === "win32" ? ".exe" : ""} ./source_${i}.c`;
+                const gcc = `gcc -static -lm -O2 -std=gnu99 -o ./out_${i}${process.platform === "win32" ? ".exe" : ""} ./source_${i}.c`;
                 execSync(gcc, { cwd: tmpDir });
             }
             this.log("Compiled Sources.");
