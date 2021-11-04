@@ -1,4 +1,4 @@
 import Checker from "./Checker";
-import { testResult, testResults } from "./types";
+import { testResult, testResults, checkOptions, checkEvents } from "./types";
 
-export { Checker, testResult, testResults };
+export { Checker, testResult, testResults, checkOptions, checkEvents };

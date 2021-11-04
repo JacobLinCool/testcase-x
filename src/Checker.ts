@@ -1,79 +1,75 @@
+import { testResults, checkOptions, checkEvents } from "./types";
 import { report, result, Runner } from "testcase-run";
 import { Generator, recipe, testcase } from "testcase-gen";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
-import { testResults, testResult } from "./types";
+import { EventEmitter } from "events";
+import string2testcases from "./convert";
 
-class Checker {
+class Checker extends EventEmitter {
     public id: number;
     public testcases: testcase[] = [];
     public sources: string[] = [];
     public preprocessor: Function = (output: result) => output.stdout.trim();
 
     constructor() {
+        super();
         this.id = Math.floor(Math.random() * 1000000);
+        this.defaultListeners();
     }
 
-    public testcase(tc: testcase[] | string): Checker {
-        if (typeof tc === "string") {
-            try {
-                tc = JSON.parse(tc);
-                if (!Array.isArray(tc)) throw new Error("");
-            } catch (err) {
-                tc = [
-                    {
-                        id: 0,
-                        name: "TESTCASE",
-                        testcase: tc as string,
-                    },
-                ];
-            }
-        }
+    public testcase(tc: testcase[] | string): this {
+        if (typeof tc === "string") tc = string2testcases(tc);
         this.testcases = tc as testcase[];
         return this;
     }
 
-    public genTestcase(rules: recipe[]): Checker {
+    public genTestcase(rules: recipe[]): this {
         const gen = new Generator(rules);
         this.testcases = gen.gen() as testcase[];
         return this;
     }
 
-    public source(src: string): Checker {
+    public source(src: string): this {
         this.sources.push(src);
         return this;
     }
 
-    public setPreprocessor(preprocessor: Function = this.preprocessor): Checker {
+    public setPreprocessor(preprocessor: Function = this.preprocessor): this {
         this.preprocessor = preprocessor;
         return this;
     }
 
-    public async go({ timeout = 1000, core = 100 }: { timeout?: number; core?: number } = {}) {
-        const tmpDir = join(process.cwd(), `tc-tmp-${this.id}`);
+    public async go({ timeout = 1000, core = 100, gccFlags = ["-static", "-O2", "-lm", "-std=gnu99"], cwd = process.cwd() }: checkOptions = {}) {
+        const tmpDir = join(cwd, `tc-tmp-${this.id}`);
         if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
+        this.emit("TMP_DIR_MADE", tmpDir);
 
         try {
             for (let i = 0; i < this.sources.length; i++) {
                 const srcPath = join(tmpDir, `source_${i}.c`);
                 writeFileSync(srcPath, this.sources[i]);
+                this.emit("SOURCE_COPIED", i, srcPath);
             }
-            this.log("Copied Sources.");
+            this.emit("SOURCES_COPIED");
 
             for (let i = 0; i < this.sources.length; i++) {
-                const gcc = `gcc -static -lm -O2 -std=gnu99 -o ./out_${i}${process.platform === "win32" ? ".exe" : ""} ./source_${i}.c`;
+                const gcc = `gcc ${gccFlags.join(" ")} -o ./out_${i}${process.platform === "win32" ? ".exe" : ""} ./source_${i}.c`;
                 execSync(gcc, { cwd: tmpDir });
+                this.emit("SOURCE_COMPILED", i, join(tmpDir, `out_${i}${process.platform === "win32" ? ".exe" : ""}`));
             }
-            this.log("Compiled Sources.");
+            this.emit("SOURCES_COMPILED");
 
             const reports: report[][] = [];
             for (let i = 0; i < this.sources.length; i++) {
-                this.log(`Running Testcase for Source ${i}`);
                 const runner = new Runner(this.testcases);
-                reports.push(await runner.run(join(tmpDir, `out_${i}${process.platform === "win32" ? ".exe" : ""}`), { timeout, core }));
+                const exec = join(tmpDir, `out_${i}${process.platform === "win32" ? ".exe" : ""}`);
+                this.emit("TESTCASE_STARTED", i, exec);
+                reports.push(await runner.run(exec, { timeout, core }));
+                this.emit("TESTCASE_FINISHED", i, exec);
             }
-            this.log("Runs Finished.");
+            this.emit("TESTCASES_FINISHED");
 
             const diff: testResults = {},
                 same: testResults = {};
@@ -93,13 +89,10 @@ class Checker {
                     else same[tcName].push({ testcase: tc, stdouts });
                 }
             }
-            this.log("Diff Analysis Finished.");
-            this.log(
-                "There are",
+            this.emit(
+                "DIFF_ANALYSIS_FINISHED",
                 Object.values(diff).reduce((acc, cur) => acc + cur.length, 0),
-                "different results between",
-                this.sources.length,
-                "sources.",
+                Object.values(same).reduce((acc, cur) => acc + cur.length, 0),
             );
             return { diff, same };
         } catch (err) {
@@ -113,6 +106,26 @@ class Checker {
 
     private log(...msg: any[]) {
         console.log(`[Checker ${this.id}]`, ...msg);
+    }
+
+    public defaultListeners() {
+        this.on("TMP_DIR_CREATED", (dir) => this.log("TMP_DIR_CREATED", dir));
+        this.on("SOURCE_COPIED", (i, srcPath) => this.log("SOURCE_COPIED", i, srcPath));
+        this.on("SOURCES_COPIED", () => this.log("SOURCES_COPIED"));
+        this.on("SOURCE_COMPILED", (i, exec) => this.log("SOURCE_COMPILED", i, exec));
+        this.on("SOURCES_COMPILED", () => this.log("SOURCES_COMPILED"));
+        this.on("TESTCASE_STARTED", (i, exec) => this.log("TESTCASE_STARTED", i, exec));
+        this.on("TESTCASE_FINISHED", (i, exec) => this.log("TESTCASE_FINISHED", i, exec));
+        this.on("TESTCASES_FINISHED", () => this.log("TESTCASES_FINISHED"));
+        this.on("DIFF_ANALYSIS_FINISHED", (diffs, sames) => {
+            this.log("DIFF_ANALYSIS_FINISHED");
+            this.log(`There are ${diffs} different results and ${sames} same results between ${this.sources.length} sources.`);
+        });
+    }
+
+    public on(event: checkEvents, listener: (...args: any[]) => void): this {
+        super.on(event, listener);
+        return this;
     }
 }
 
